@@ -5,7 +5,7 @@
 
 /// Tipo de pieza que cuenta como material (el rey no cuenta).
 ///
-/// Los valores siguen el orden de tipos de Polyglot y del códec de MindChess:
+/// Los valores siguen el orden de tipos de Polyglot:
 /// peón 0, caballo 1, alfil 2, torre 3, dama 4 (rey 5 no se guarda).
 public enum MaterialPiece: Int, CaseIterable, Sendable, Codable {
     case pawn = 0
@@ -120,7 +120,7 @@ public struct PieceCounts: Hashable, Sendable, Codable {
 ///
 /// | Bits | Contenido |
 /// |---|---|
-/// | 0–39 | 10 nibbles, uno por lane `2·tipo + color` (negro 0, blanco 1; peón 0 … dama 4), igual que los bitboards de Polyglot y del códec de MindChess |
+/// | 0–39 | 10 nibbles, uno por lane `2·tipo + color` (negro 0, blanco 1; peón 0 … dama 4), igual que los bitboards de Polyglot |
 /// | 40–43 | ``BishopSquareColors``: negro claro, negro oscuro, blanco claro, blanco oscuro |
 /// | 44–63 | a cero |
 ///

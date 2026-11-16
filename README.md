@@ -7,14 +7,14 @@ como las de la pestaña Material de ChessBase.
 
 - SPM, Swift 6, iOS 18 / macOS 15.
 - La librería no tiene dependencias. La herramienta de medida (`Tools/MaterialBench`)
-  es un paquete aparte que usa [fischer-core](https://github.com/NSStudent/fischer-core) (`feature/0.4.0`).
-- Pensado para el índice de búsquedas de MindChess: una firma por partida
+  es un paquete aparte que usa [fischer-core](https://github.com/NSStudent/fischer-core) (0.4.0 o posterior).
+- Pensado para el índice de búsquedas de una app de ajedrez: una firma por partida
   que se calcula en la misma pasada que el resto del índice y descarta partidas sin decodificarlas.
 
 ```sh
 swift build
 swift test
-cd Tools/MaterialBench && swift run -c release material-bench ~/Downloads/LumbrasGigabase_OTB_2025.pgn 50000 4 medida.json
+cd Tools/MaterialBench && swift run -c release material-bench ruta/a/LumbrasGigabase_OTB_2025.pgn 50000 4 medida.json
 ```
 
 ## Uso en la pasada de indexación
@@ -43,7 +43,7 @@ si la firma no cambia, y el llamante puede rehacer la firma solo en esas jugadas
 ## 1. `MaterialSignature`
 
 Recuento por tipo y color a partir de los 12 bitboards `UInt64` en el orden de lanes de
-Polyglot (el mismo que usa el códec de MindChess): `lane = 2·tipo + color`, negro 0, blanco 1; peón 0,
+Polyglot: `lane = 2·tipo + color`, negro 0, blanco 1; peón 0,
 caballo 1, alfil 2, torre 3, dama 4, rey 5 (el rey no se cuenta).
 
 | Bits del `UInt64` | Contenido |

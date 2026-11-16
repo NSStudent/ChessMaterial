@@ -167,7 +167,7 @@ func sanTokens(_ movetext: String) -> [Substring] {
 
 let kinds: [(Piece.Kind, Int)] = [(.pawn, 0), (.knight, 1), (.bishop, 2), (.rook, 3), (.queen, 4), (.king, 5)]
 
-/// Los 12 bitboards en orden de lanes de Polyglot, como el códec de MindChess.
+/// Los 12 bitboards en orden de lanes de Polyglot (`2·tipo + color`).
 func lanes(_ board: Board, into buffer: inout [UInt64]) {
     for (kind, type) in kinds {
         for (color, c) in [(PlayerColor.black, 0), (.white, 1)] {

@@ -10,7 +10,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     dependencies: [
         .package(path: "../.."),
-        .package(url: "https://github.com/NSStudent/fischer-core.git", branch: "feature/0.4.0"),
+        .package(url: "https://github.com/NSStudent/fischer-core.git", from: "0.4.0"),
     ],
     targets: [
         .executableTarget(
