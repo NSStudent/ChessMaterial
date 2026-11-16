@@ -1,7 +1,7 @@
 // MaterialClass.swift
 // ChessMaterial
 //
-// Partición del material en 56 clases (de 64 posibles) para `materialVisited`.
+// Partición del material en 57 clases (de 64 posibles) para `materialVisited`.
 
 /// Clase de material de una posición. Cada posición cae en **una sola** clase; la
 /// partida guarda el OR de `1 << clase` de todas sus posiciones (`materialVisited`,
@@ -11,15 +11,18 @@
 /// Reglas de la partición (en este orden):
 ///
 /// - Las clases **no dependen del color**: `clase(s) == clase(s.colorSwapped)`.
-/// - Los recuentos de piezas se **saturan en 3** antes de clasificar (tres o más damas
-///   cuentan como tres). Los peones solo entran como «hay alguno» y como diferencia
-///   saturada en ±2.
+/// - Cada tipo de pieza se ve como (mínimo de los dos bandos saturado en 3, diferencia
+///   saturada en ±3): los recuentos por bando son exactos hasta 3 y las diferencias
+///   pequeñas son exactas aunque haya muchas piezas. Los peones solo entran como «hay
+///   alguno» y como diferencia saturada en ±2.
+/// - En el medio juego, «igual», «calidad», «pieza» y «damas desiguales» usan esas
+///   diferencias (blancas − negras), no los recuentos saturados.
 /// - **Final** (`isEnding`): cada bando tiene como mucho 2 piezas y, si hay alguna
 ///   dama, como mucho 3 piezas entre los dos bandos. El resto es **medio juego**.
 /// - Medio juego: «pleno» si hay 10 o más piezas entre los dos bandos; si no, «reducido».
 ///
 /// Los números son parte del formato del índice: **no se renumeran nunca**. Las clases
-/// nuevas van en los huecos 56–63.
+/// nuevas van en los huecos 57–63.
 public enum MaterialClass: Int, CaseIterable, Sendable, Codable {
     // MARK: Finales sin piezas (0–3)
     /// R-R sin peones.
@@ -120,15 +123,17 @@ public enum MaterialClass: Int, CaseIterable, Sendable, Codable {
     case noQueensReducedMinorPiece = 50
     case noQueensReducedOther = 51
 
-    // MARK: Otros medios juegos (52–55)
-    /// Distinto número de damas (D contra TT, D contra piezas…), pleno.
-    case queenImbalanceFull = 52
-    /// Distinto número de damas, reducido.
-    case queenImbalanceReduced = 53
+    // MARK: Otros medios juegos (52–56)
+    /// Una dama de más y el resto de piezas igual (suele ser el ply de un cambio de damas).
+    case queenUpRestEqual = 52
+    /// Dama contra piezas que valen al menos una torre más: D contra TT, T+menor, tres menores…
+    case queenVsCompensation = 53
     /// Damas en los dos bandos, resto igual y alfiles de distinto color (uno por bando).
     case queensOppositeBishops = 54
     /// Sin damas, resto igual y alfiles de distinto color (uno por bando).
     case noQueensOppositeBishops = 55
+    /// Distinto número de damas, resto de casos.
+    case queenImbalanceOther = 56
 
     /// Máscara con todas las clases.
     public static let allMask: UInt64 = (1 << UInt64(allCases.count)) - 1
@@ -169,13 +174,21 @@ public enum MaterialClass: Int, CaseIterable, Sendable, Codable {
 extension MaterialClass {
     /// Lo único que mira la clasificación. Con esto `classesMatching` puede enumerar
     /// todos los valores posibles de forma exacta.
+    ///
+    /// Cada tipo de pieza (D, T, A, C) se describe con un código 0…27:
+    /// `bajo·7 + (dif + 3)`, con `bajo` = mínimo de los dos bandos saturado en 3 y
+    /// `dif` = blancas − negras saturada en ±3. Así los recuentos de cada bando son
+    /// exactos hasta 3 (lo que necesita el criterio de final) y la diferencia es exacta
+    /// hasta ±2 aunque haya muchas piezas (lo que necesitan la calidad, la pieza de más o
+    /// las damas desiguales).
     @usableFromInline
     struct Features: Hashable, Sendable {
-        // Recuentos saturados en 3: [negro, blanco].
-        @usableFromInline var q: (UInt8, UInt8)
-        @usableFromInline var r: (UInt8, UInt8)
-        @usableFromInline var b: (UInt8, UInt8)
-        @usableFromInline var n: (UInt8, UInt8)
+        @usableFromInline var q: UInt8
+        @usableFromInline var r: UInt8
+        @usableFromInline var b: UInt8
+        @usableFromInline var n: UInt8
+        /// Menores blancas − negras (alfiles + caballos), exacta y saturada en ±3.
+        @usableFromInline var m: Int8
         /// Alfiles de distinto color; solo puede ser `true` con un alfil por bando.
         @usableFromInline var oppositeBishops: Bool
         /// Peones blancos − negros, saturado en ±2.
@@ -184,11 +197,12 @@ extension MaterialClass {
         @usableFromInline var noPawns: Bool
 
         @inlinable
-        init(q: (UInt8, UInt8), r: (UInt8, UInt8), b: (UInt8, UInt8), n: (UInt8, UInt8), oppositeBishops: Bool, pawnDelta: Int8, noPawns: Bool) {
+        init(q: UInt8, r: UInt8, b: UInt8, n: UInt8, m: Int8, oppositeBishops: Bool, pawnDelta: Int8, noPawns: Bool) {
             self.q = q
             self.r = r
             self.b = b
             self.n = n
+            self.m = m
             self.oppositeBishops = oppositeBishops
             self.pawnDelta = pawnDelta
             self.noPawns = noPawns
@@ -196,9 +210,7 @@ extension MaterialClass {
 
         @inlinable
         init(_ s: MaterialSignature) {
-            @inline(__always) func c(_ p: MaterialPiece) -> (UInt8, UInt8) {
-                (UInt8(min(s[p, .black], 3)), UInt8(min(s[p, .white], 3)))
-            }
+            @inline(__always) func c(_ p: MaterialPiece) -> UInt8 { Features.code(white: s[p, .white], black: s[p, .black]) }
             let pw = s[.pawn, .white]
             let pb = s[.pawn, .black]
             self.init(
@@ -206,27 +218,38 @@ extension MaterialClass {
                 r: c(.rook),
                 b: c(.bishop),
                 n: c(.knight),
+                m: Self.minorDelta(s[.bishop, .white] + s[.knight, .white] - s[.bishop, .black] - s[.knight, .black]),
                 oppositeBishops: s.hasOppositeColoredBishops,
-                pawnDelta: Int8(max(-2, min(2, pw - pb))),
+                pawnDelta: Self.pawnDelta(white: pw, black: pb),
                 noPawns: pw + pb == 0
             )
         }
 
-        @usableFromInline
-        static func == (l: Features, r: Features) -> Bool {
-            l.q == r.q && l.r == r.r && l.b == r.b && l.n == r.n && l.oppositeBishops == r.oppositeBishops
-                && l.pawnDelta == r.pawnDelta && l.noPawns == r.noPawns
+        /// Código de un tipo de pieza: `min(min(w, b), 3)·7 + clamp(w − b, ±3) + 3`.
+        @inlinable
+        static func code(white w: Int, black b: Int) -> UInt8 {
+            UInt8(min(min(w, b), 3) * 7 + max(-3, min(3, w - b)) + 3)
         }
 
-        @usableFromInline
-        func hash(into h: inout Hasher) {
-            h.combine(q.0); h.combine(q.1); h.combine(r.0); h.combine(r.1)
-            h.combine(b.0); h.combine(b.1); h.combine(n.0); h.combine(n.1)
-            h.combine(oppositeBishops); h.combine(pawnDelta); h.combine(noPawns)
+        @inlinable
+        static func pawnDelta(white w: Int, black b: Int) -> Int8 { Int8(max(-2, min(2, w - b))) }
+
+        @inlinable
+        static func minorDelta(_ d: Int) -> Int8 { Int8(max(-3, min(3, d))) }
+
+        /// (blancas, negras, diferencia) de un código: recuentos saturados en 3.
+        @inlinable
+        static func decode(_ code: UInt8) -> (white: Int, black: Int, delta: Int) {
+            let low = Int(code) / 7
+            let delta = Int(code) % 7 - 3
+            return (min(low + max(delta, 0), 3), min(low + max(-delta, 0), 3), delta)
         }
+
+        /// Código de «un alfil por bando»: el único con el que puede haber alfiles de distinto color.
+        static let oneEach = code(white: 1, black: 1)
     }
 
-    /// Un bando visto por la clasificación.
+    /// Un bando visto por la clasificación (recuentos saturados en 3).
     @usableFromInline
     struct Side {
         @usableFromInline var q: Int, r: Int, b: Int, n: Int
@@ -243,12 +266,17 @@ extension MaterialClass {
     @usableFromInline
     static func classify(_ f: Features) -> MaterialClass {
         let delta = Int(f.pawnDelta)
-        var w = Side(q: Int(f.q.1), r: Int(f.r.1), b: Int(f.b.1), n: Int(f.n.1), pawnEdge: delta)
-        var k = Side(q: Int(f.q.0), r: Int(f.r.0), b: Int(f.b.0), n: Int(f.n.0), pawnEdge: -delta)
+        let q = Features.decode(f.q), r = Features.decode(f.r), b = Features.decode(f.b), n = Features.decode(f.n)
+        var w = Side(q: q.white, r: r.white, b: b.white, n: n.white, pawnEdge: delta)
+        var k = Side(q: q.black, r: r.black, b: b.black, n: n.black, pawnEdge: -delta)
         // Orden canónico: «a» es el bando con más piezas (luego más valor, luego más peones),
-        // para que la clase no dependa del color.
+        // para que la clase no dependa del color. `sign` pasa las diferencias a «a − o».
+        var sign = 1
         func key(_ s: Side) -> (Int, Int, Int, Int, Int, Int) { (s.pieces, s.q, s.r, s.b, s.n, s.pawnEdge) }
-        if key(k) > key(w) { swap(&w, &k) }
+        if key(k) > key(w) {
+            swap(&w, &k)
+            sign = -1
+        }
         let a = w
         let o = k
         let absDelta = abs(delta)
@@ -308,12 +336,18 @@ extension MaterialClass {
             return .queenVsPieces
         }
 
-        // Medio juego.
+        // Medio juego: las diferencias son exactas hasta ±2 aunque haya muchas piezas.
         let full = total >= 10
-        if a.q != o.q { return full ? .queenImbalanceFull : .queenImbalanceReduced }
+        let dr = sign * r.delta
+        let dm = sign * Int(f.m)
+        if q.delta != 0 {
+            // Visto desde el bando con más damas.
+            let up = q.delta > 0 ? sign : -sign
+            let (rooks, minors) = (up * dr, up * dm)
+            if rooks == 0, minors == 0 { return .queenUpRestEqual }
+            return 5 * rooks + 3 * minors <= -5 ? .queenVsCompensation : .queenImbalanceOther
+        }
         let queens = a.q > 0
-        let dr = a.r - o.r
-        let dm = a.minors - o.minors
         enum Kind { case equal, exchangeForPawns, exchange, minor, other }
         let kind: Kind
         if dr == 0, dm == 0 {
@@ -351,57 +385,61 @@ extension MaterialClass {
     /// alfiles, peones), ninguna clase con una firma que cumple puede quedar fuera.
     /// `ignoreColors` no cambia la máscara porque las clases no dependen del color.
     public static func classesMatching(_ query: MaterialQuery) -> UInt64 {
-        // Damas y torres: pares (negro, blanco) saturados.
-        func pairs(_ piece: MaterialPiece) -> [(UInt8, UInt8)] {
-            var seen = Set<Int>()
-            var out: [(UInt8, UInt8)] = []
-            for wc in 0 ... 15 where query.white[piece].contains(wc) {
-                for bc in 0 ... 15 where query.black[piece].contains(bc) && query.difference[piece].contains(wc - bc) {
-                    let pair = (UInt8(min(bc, 3)), UInt8(min(wc, 3)))
-                    if seen.insert(Int(pair.0) * 4 + Int(pair.1)).inserted { out.append(pair) }
+        let q = query
+        // Damas y torres: códigos 0…27.
+        func codes(_ piece: MaterialPiece) -> [UInt8] {
+            var seen: UInt32 = 0
+            for wc in 0 ... 15 where q.white[piece].contains(wc) {
+                for bc in 0 ... 15 where q.black[piece].contains(bc) && q.difference[piece].contains(wc - bc) {
+                    seen |= 1 << UInt32(Features.code(white: wc, black: bc))
                 }
             }
-            return out
+            return (0 ..< 28).filter { seen & (1 << UInt32($0)) != 0 }.map(UInt8.init)
         }
-        let queens = pairs(.queen)
-        let rooks = pairs(.rook)
+        let queens = codes(.queen)
+        let rooks = codes(.rook)
 
-        // Alfiles y caballos juntos (fila «menores» y condición de alfiles).
-        struct Minor: Hashable { var b0, b1, n0, n1: UInt8; var opposite: Bool }
-        var minors = Set<Minor>()
-        let q = query
+        // Alfiles y caballos juntos (fila «menores» y condición de alfiles):
+        // índice `(alfiles·28 + caballos)·7 + menores + 3`; desde 5488, los de alfiles de distinto color.
+        let oppositeBase = 28 * 28 * 7
+        var minorSeen = [Bool](repeating: false, count: oppositeBase + 28 * 7)
         for wb in 0 ... 15 where q.white.bishops.contains(wb) {
             for bb in 0 ... 15 where q.black.bishops.contains(bb) && q.difference.bishops.contains(wb - bb) {
                 // Valores posibles de «alfiles de distinto color».
                 let oneEach = wb == 1 && bb == 1
-                let oppositeOptions: [Bool] = switch q.bishops {
-                case .any: oneEach ? [false, true] : [false]
-                case .opposite: oneEach ? [true] : []
-                case .same: oneEach ? [false] : []
+                let (plain, opposite): (Bool, Bool) = switch q.bishops {
+                case .any: (true, oneEach)
+                case .opposite: (false, oneEach)
+                case .same: (oneEach, false)
                 }
-                if oppositeOptions.isEmpty { continue }
+                if !plain, !opposite { continue }
+                let bishopCode = Int(Features.code(white: wb, black: bb))
                 for wn in 0 ... 15 where q.white.knights.contains(wn) && q.white.minors.contains(wb + wn) {
                     for bn in 0 ... 15 where q.black.knights.contains(bn) && q.black.minors.contains(bb + bn)
                         && q.difference.knights.contains(wn - bn) && q.difference.minors.contains(wb + wn - bb - bn) {
-                        for opposite in oppositeOptions {
-                            minors.insert(Minor(
-                                b0: UInt8(min(bb, 3)), b1: UInt8(min(wb, 3)),
-                                n0: UInt8(min(bn, 3)), n1: UInt8(min(wn, 3)),
-                                opposite: opposite
-                            ))
-                        }
+                        let knightCode = Int(Features.code(white: wn, black: bn))
+                        let dm = Int(Features.minorDelta(wb + wn - bb - bn)) + 3
+                        if plain { minorSeen[(bishopCode * 28 + knightCode) * 7 + dm] = true }
+                        if opposite { minorSeen[oppositeBase + knightCode * 7 + dm] = true }
                     }
                 }
             }
         }
+        let minors: [(b: UInt8, n: UInt8, m: Int8, opposite: Bool)] = minorSeen.indices.filter { minorSeen[$0] }.map { i in
+            let dm = Int8(i % 7 - 3)
+            if i >= oppositeBase { return (Features.oneEach, UInt8((i - oppositeBase) / 7), dm, true) }
+            return (UInt8(i / 7 / 28), UInt8(i / 7 % 28), dm, false)
+        }
 
         // Peones: (diferencia saturada, sin peones).
-        struct Pawns: Hashable { var delta: Int8; var none: Bool }
-        var pawns = Set<Pawns>()
+        var pawnSeen: UInt8 = 0
         for wp in 0 ... 15 where q.white.pawns.contains(wp) {
             for bp in 0 ... 15 where q.black.pawns.contains(bp) && q.difference.pawns.contains(wp - bp) {
-                pawns.insert(Pawns(delta: Int8(max(-2, min(2, wp - bp))), none: wp + bp == 0))
+                pawnSeen |= 1 << UInt8(wp + bp == 0 ? 5 : Int(Features.pawnDelta(white: wp, black: bp)) + 2)
             }
+        }
+        let pawns: [(delta: Int8, none: Bool)] = (0 ..< 6).filter { pawnSeen & (1 << UInt8($0)) != 0 }.map {
+            $0 == 5 ? (0, true) : (Int8($0 - 2), false)
         }
 
         var mask: UInt64 = 0
@@ -409,14 +447,11 @@ extension MaterialClass {
             for rr in rooks {
                 for m in minors {
                     for p in pawns {
-                        let f = Features(
-                            q: qq, r: rr, b: (m.b0, m.b1), n: (m.n0, m.n1),
-                            oppositeBishops: m.opposite, pawnDelta: p.delta, noPawns: p.none
-                        )
+                        let f = Features(q: qq, r: rr, b: m.b, n: m.n, m: m.m, oppositeBishops: m.opposite, pawnDelta: p.delta, noPawns: p.none)
                         mask |= 1 << UInt64(classify(f).rawValue)
-                        if mask == allMask { return mask }
                     }
                 }
+                if mask == allMask { return mask }
             }
         }
         return mask
@@ -436,7 +471,8 @@ extension MaterialClass {
         "Con damas, reducido, igual", "Con damas, reducido, calidad por peón", "Con damas, reducido, calidad", "Con damas, reducido, pieza", "Con damas, reducido, otro",
         "Sin damas, pleno, igual", "Sin damas, pleno, calidad por peón", "Sin damas, pleno, calidad", "Sin damas, pleno, pieza", "Sin damas, pleno, otro",
         "Sin damas, reducido, igual", "Sin damas, reducido, calidad por peón", "Sin damas, reducido, calidad", "Sin damas, reducido, pieza", "Sin damas, reducido, otro",
-        "Damas desiguales, pleno", "Damas desiguales, reducido",
+        "Dama de más, resto igual", "D contra compensación (TT, T+menor…)",
         "Con damas, alfiles de distinto color", "Sin damas, alfiles de distinto color",
+        "Damas desiguales, otro",
     ]
 }

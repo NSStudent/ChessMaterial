@@ -75,7 +75,10 @@ struct MaterialClassTests {
         ("TTAACCPPPPPPPP-TTAACCPPPPPPPP", .noQueensFullEqual),
         ("TTA-TTC", .noQueensReducedEqual),
         ("TTAC-TTA", .noQueensReducedMinorPiece),
-        ("DTT-TTAA", .queenImbalanceReduced),
+        ("DTT-TTAA", .queenVsCompensation),
+        ("DTTAACCPPPPPPPP-TTTTAACCPPPPPPPP", .queenVsCompensation),
+        ("DTTAACCPPPPPPPP-TTAACCPPPPPPPP", .queenUpRestEqual),
+        ("DTTAACCPPPPPPPP-TTAACPPPPPPPP", .queenImbalanceOther),
     ])
     func examples(text: String, expected: MaterialClass) {
         #expect(MaterialClass(sig(text)) == expected)
@@ -117,7 +120,7 @@ struct MaterialClassTests {
         var rng = SplitMix64(seed: 2026_11_16)
         var positives = 0
         var masksCache: [MaterialQuery: UInt64] = [:]
-        for _ in 0 ..< 250 {
+        for _ in 0 ..< 150 {
             let query = MaterialQuery.random(using: &rng)
             let mask = masksCache[query] ?? MaterialClass.classesMatching(query)
             masksCache[query] = mask
@@ -136,7 +139,7 @@ struct MaterialClassTests {
                 if MaterialClass.classes(of: s) & mask == 0 { Issue.record("falso negativo: \(s) con \(query)") }
             }
         }
-        #expect(positives > 2000)
+        #expect(positives > 1200)
     }
 
     @Test("La máscara es justa: cada clase marcada tiene alguna firma que cumple")

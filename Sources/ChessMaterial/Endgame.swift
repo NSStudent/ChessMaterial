@@ -175,8 +175,7 @@ public enum Endgame {
     /// Una posición es **final** si cada bando tiene como mucho 2 piezas (sin contar
     /// rey ni peones) y, si hay alguna dama, como mucho 3 piezas entre los dos.
     ///
-    /// Sin damas coincide con el criterio de la medida de 1 M partidas del estudio
-    /// (`ending_sig` de `measure_kit.py`). Con damas admite D-D, D-T, DT-D, D-TT, DA-D…
+    /// Sin damas es el criterio clásico de «≤ 2 piezas por bando». Con damas admite D-D, D-T, DT-D, D-TT, DA-D…
     /// pero no DT-DT, que se juega como un medio juego.
     @inlinable
     public static func isEnding(_ s: MaterialSignature) -> Bool {

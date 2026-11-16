@@ -119,6 +119,18 @@ struct MaterialQueryTests {
         #expect(q.classMask & MaterialClass.classes(of: sig("TPPPP-APPPPP")) != 0)
         #expect(MaterialClass.members(of: q.classMask).contains(.rookVsMinorWithPawns))
         #expect(!MaterialClass.members(of: q.classMask).contains(.rookVsMinor))
+        // Con los recuentos absolutos libres, la diferencia no se pierde al saturar:
+        // ninguna clase «igual» ni de calidad sin peones entra en la máscara.
+        let members = Set(MaterialClass.members(of: q.classMask))
+        #expect(members.isDisjoint(with: [.queensFullEqual, .noQueensReducedEqual, .queensFullExchange, .noQueensReducedExchange]))
+        #expect(members.isSuperset(of: [.queensFullExchangeForPawns, .noQueensReducedExchangeForPawns]))
+        // Cuatro torres contra tres sigue siendo calidad.
+        let manyRooks = MaterialSignature(
+            white: PieceCounts(pawns: 3, rooks: 4, queens: 1),
+            black: PieceCounts(pawns: 4, bishops: 1, rooks: 3, queens: 1)
+        )
+        #expect(q.matches(manyRooks))
+        #expect(MaterialClass(manyRooks) == .queensReducedExchangeForPawns)
     }
 
     @Test("Alfiles de distinto color")
